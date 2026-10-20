@@ -1,9 +1,9 @@
-
 import { Navigate, Route, Routes } from "react-router-dom";
 import DashboardLayout from "./layouts/DashboardLayout";
 import Login from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
 import QuestionEditor from "./pages/QuestionEditor";
+import ScanAnswers from "./pages/ScanAnswers";
 
 export default function App() {
   return (
@@ -12,14 +12,17 @@ export default function App() {
 
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<DashboardLayout />} />
+        <Route
+          path="/assessments/:assessmentId/questions"
+          element={<QuestionEditor />}
+        />
+        <Route
+          path="/assessments/:assessmentId/scan"
+          element={<ScanAnswers />}
+        />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
-
-      <Route
-        path="/assessments/:assessmentId/questions"
-        element={<QuestionEditor />}
-      />
     </Routes>
   );
 }

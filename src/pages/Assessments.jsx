@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  publishAssessment,
-} from "../api/assessments";
 import { useNavigate } from "react-router-dom";
 import {
     ClipboardList,
     Plus,
     RefreshCw,
+    ScanLine,
     Search,
     X,
 } from "lucide-react";
@@ -165,10 +163,7 @@ export default function Assessments() {
     async function handleCreate(event) {
         event.preventDefault();
 
-        if (
-            !form.classroom ||
-            !form.title.trim()
-        ) {
+        if (!form.classroom || !form.title.trim()) {
             toast.error("Select a classroom and enter an assessment title.");
             return;
         }
@@ -384,7 +379,6 @@ export default function Assessments() {
                                         </div>
                                     </div>
 
-                                    
                                     <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
                                         <StatusBadge status={assessment.status} />
 
@@ -403,8 +397,20 @@ export default function Assessments() {
                                         >
                                             Open questions
                                         </button>
+
+                                        {assessment.status === "PUBLISHED" && (
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    navigate(`/assessments/${assessment.id}/scan`)
+                                                }
+                                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                                            >
+                                                <ScanLine size={16} />
+                                                Scan answers
+                                            </button>
+                                        )}
                                     </div>
-                                    
                                 </article>
                             );
                         })}

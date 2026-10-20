@@ -122,7 +122,7 @@ export default function Classrooms() {
     async function handleCreate(event) {
         event.preventDefault();
 
-        if (!form.school || !form.name.trim() || !form.academic_year.trim()) {
+        if (!form.school_name.trim() || !form.name.trim() || !form.academic_year.trim()) {
             toast.error("Please complete all required fields.");
             return;
         }
@@ -131,7 +131,7 @@ export default function Classrooms() {
 
         try {
             await createClassroom({
-                school: Number(form.school),
+                school_name: form.school_name.trim(),
                 name: form.name.trim(),
                 academic_year: form.academic_year.trim(),
                 is_active: form.is_active,
@@ -140,7 +140,7 @@ export default function Classrooms() {
             toast.success("Classroom created successfully.");
 
             setForm({
-                school: "",
+                school_name: "",
                 name: "",
                 academic_year: "",
                 is_active: true,
@@ -342,8 +342,8 @@ export default function Classrooms() {
                                             <td className="px-4 py-4">
                                                 <span
                                                     className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${classroom.is_active
-                                                            ? "bg-emerald-50 text-emerald-700"
-                                                            : "bg-slate-100 text-slate-600"
+                                                        ? "bg-emerald-50 text-emerald-700"
+                                                        : "bg-slate-100 text-slate-600"
                                                         }`}
                                                 >
                                                     {classroom.is_active ? "Active" : "Inactive"}
@@ -406,27 +406,22 @@ export default function Classrooms() {
 
                         <form onSubmit={handleCreate} className="mt-6 space-y-4">
                             <Field label="School *">
-                                <select
-                                    name="school"
-                                    value={form.school}
-                                    onChange={updateField}
-                                    required
-                                    className={inputClass}
-                                >
-                                    <option value="">Select a school</option>
-                                    {schools.map((school) => (
-                                        <option key={school.id} value={school.id}>
-                                            {school.name}
-                                        </option>
-                                    ))}
-                                </select>
-                                {schools.length === 0 && (
-                                    <span className="mt-1 block text-xs text-amber-700">
-                                        No schools are available. A school administrator may need
-                                        to create one first.
-                                    </span>
-                                )}
-                            </Field>
+    <input
+        name="school_name"
+        value={form.school_name}
+        onChange={updateField}
+        required
+        maxLength={150}
+        list="school-options"
+        placeholder="e.g. Tacloban National High School"
+        className={inputClass}
+    />
+    <datalist id="school-options">
+        {schools.map((school) => (
+            <option key={school.id} value={school.name} />
+        ))}
+    </datalist>
+</Field>
 
                             <Field label="Classroom name *">
                                 <input
@@ -474,7 +469,7 @@ export default function Classrooms() {
 
                                 <button
                                     type="submit"
-                                    disabled={submitting || schools.length === 0}
+                                    disabled={submitting}
                                     className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                     {submitting ? "Creating..." : "Create classroom"}

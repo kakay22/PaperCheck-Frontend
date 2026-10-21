@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import StudentProfilePanel from "../components/StudentProfilePanel";
 import {
   GraduationCap,
   Plus,
@@ -61,6 +62,7 @@ export default function Students() {
   const [submitting, setSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
+  const [profileId, setProfileId] = useState(null);
 
   const [form, setForm] = useState({
     student_id: "",
@@ -421,23 +423,28 @@ export default function Students() {
                     <td className="px-4 py-3 font-medium text-slate-900">
                       {student.student_id}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {student.full_name ||
-                        [
-                          student.first_name,
-                          student.middle_name,
-                          student.last_name,
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => setProfileId(student.id)}
+                        className="text-left font-medium text-blue-700 hover:text-blue-900 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 rounded"
+                      >
+                        {student.full_name ||
+                          [
+                            student.first_name,
+                            student.middle_name,
+                            student.last_name,
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                          student.is_active
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-600"
-                        }`}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${student.is_active
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-slate-100 text-slate-600"
+                          }`}
                       >
                         {student.is_active ? "Active" : "Inactive"}
                       </span>
@@ -573,6 +580,13 @@ export default function Students() {
             </form>
           </section>
         </div>
+      )}
+
+      {profileId !== null && (
+        <StudentProfilePanel
+          studentPk={profileId}
+          onClose={() => setProfileId(null)}
+        />
       )}
     </div>
   );

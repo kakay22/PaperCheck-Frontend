@@ -1,131 +1,120 @@
-import { useState } from "react";
+
+import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
+import Grades from "../pages/Grades";
 import Assessments from "../pages/Assessments";
 import Sidebar from "../components/Sidebar";
 import { logout } from "../api/auth";
+import { getMyAccount } from "../api/account";
 import Dashboard from "../pages/Dashboard";
 import Classrooms from "../pages/Classrooms";
 import Students from "../pages/Students";
+import ScanPapers from "../pages/ScanPapers";
+import AccountSettings from "../pages/AccountSettings";
 
 export default function DashboardLayout() {
-    const [activePage, setActivePage] = useState("Dashboard");
-    const [menuOpen, setMenuOpen] = useState(false);
+  const [activePage, setActivePage] = useState("Dashboard");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [account, setAccount] = useState(null);
 
-    const navigate = useNavigate();
+  const navigate = useNavigate();
 
-    function handleNavigate(page) {
-        setActivePage(page);
-        setMenuOpen(false);
-    }
+  useEffect(() => {
+    let active = true;
 
-    function handleLogout() {
-        logout();
-        toast.success("You have signed out.");
-        navigate("/login", { replace: true });
-    }
+    getMyAccount()
+      .then((data) => {
+        if (active) setAccount(data);
+      })
+      .catch(() => {
+        // AccountSettings displays its own API error if its profile cannot load.
+      });
 
-    const quickAccessItems = [
-        {
-            label: "Classrooms",
-            description: "Manage classes and students",
-            color: "bg-emerald-50 text-emerald-700",
-        },
-        {
-            label: "Assessments",
-            description: "Build and publish assessments",
-            color: "bg-violet-50 text-violet-700",
-        },
-        {
-            label: "Scan papers",
-            description: "Upload answer sheets for checking",
-            color: "bg-amber-50 text-amber-700",
-        },
-        {
-            label: "Grades",
-            description: "Review and approve grades",
-            color: "bg-blue-50 text-blue-700",
-        },
-    ];
+    return () => {
+      active = false;
+    };
+  }, []);
 
-    return (
-        <div className="min-h-screen">
-            <Sidebar
-                activePage={activePage}
-                onNavigate={handleNavigate}
-                onLogout={handleLogout}
-                open={menuOpen}
-                onClose={() => setMenuOpen(false)}
-            />
+  function handleNavigate(page) {
+    setActivePage(page);
+    setMenuOpen(false);
+  }
 
-            <main className="min-h-screen md:ml-64">
-                {/* Top navigation */}
-                <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
-                    <div className="flex items-center gap-3">
-                        <button
-                            type="button"
-                            className="grid size-10 place-items-center rounded-lg text-slate-600 transition hover:bg-slate-100 md:hidden"
-                            onClick={() => setMenuOpen(true)}
-                            aria-label="Open navigation"
-                        >
-                            <Menu size={22} />
-                        </button>
+  function handleLogout() {
+    logout();
+    toast.success("You have signed out.");
+    navigate("/login", { replace: true });
+  }
 
-                        <p className="text-sm text-slate-500">
-                            Workspace
-                            <span className="mx-1 text-slate-300">/</span>
-                            <span className="font-medium text-slate-800">
-                                {activePage}
-                            </span>
-                        </p>
-                    </div>
+  const accountName =
+    `${account?.first_name || ""} ${account?.last_name || ""}`.trim() ||
+    account?.username ||
+    "Signed-in user";
 
-                    <span className="hidden items-center gap-2 text-xs text-slate-500 sm:flex">
-                        <span className="size-2 rounded-full bg-amber-400" />
-                        Local development
-                    </span>
-                </header>
+  const accountEmail = account?.email || "PaperCheck account";
 
-                <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
-                    {activePage === "Dashboard" ? (
-                        <Dashboard />
-                    ) : activePage === "Classrooms" ? (
-                        <Classrooms />
-                    ) : activePage === "Students" ? (
-                        <Students />
-                    ) : activePage === "Assessments" ? (
-                        <Assessments />
-                    ) : (
-                        <>
-                            <div>
-                                <p className="mb-2 text-[10px] font-bold tracking-[0.15em] text-blue-600">
-                                    YOUR WORKSPACE
-                                </p>
+  return (
+    <div className="min-h-screen">
+      <Sidebar
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        onLogout={handleLogout}
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        accountName={accountName}
+        accountEmail={accountEmail}
+      />
 
-                                <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                                    {activePage}
-                                </h2>
+      <main className="min-h-screen md:ml-64">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="grid size-10 place-items-center rounded-lg text-slate-600 transition hover:bg-slate-100 md:hidden"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open navigation"
+            >
+              <Menu size={22} />
+            </button>
 
-                                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                                    Manage assessments, scan answer sheets, and review student grades
-                                    in one place.
-                                </p>
-                            </div>
+            <p className="text-sm text-slate-500">
+              Workspace
+              <span className="mx-1 text-slate-300">/</span>
+              <span className="font-medium text-slate-800">
+                {activePage}
+              </span>
+            </p>
+          </div>
 
-                            <section className="mt-7 rounded-xl border border-slate-200 bg-white p-5">
-                                <p className="text-sm font-semibold text-slate-900">
-                                    {activePage} workspace
-                                </p>
-                                <p className="mt-1 text-sm leading-6 text-slate-500">
-                                    This section will be connected to the Django API in a later step.
-                                </p>
-                            </section>
-                        </>
-                    )}
-                </div>
-            </main>
+          <span className="hidden items-center gap-2 text-xs text-slate-500 sm:flex">
+            <span className="size-2 rounded-full bg-amber-400" />
+            Local development
+          </span>
+        </header>
+
+        <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
+          {activePage === "Dashboard" ? (
+            <Dashboard />
+          ) : activePage === "Classrooms" ? (
+            <Classrooms />
+          ) : activePage === "Students" ? (
+            <Students />
+          ) : activePage === "Assessments" ? (
+            <Assessments />
+          ) : activePage === "Grades" ? (
+            <Grades />
+          ) : activePage === "Scan papers" ? (
+            <ScanPapers />
+          ) : activePage === "My Account" ? (
+            <AccountSettings />
+          ) : (
+            <Dashboard />
+          )}
         </div>
-    );
+      </main>
+    </div>
+  );
 }

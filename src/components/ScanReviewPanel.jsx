@@ -13,6 +13,15 @@ import {
 function getErrorMessage(error) {
     const data = error.response?.data;
 
+    const blocking = [
+        ...(data?.missing_question_orders || []),
+        ...(data?.unreviewed_question_orders || []),
+    ];
+
+    if (blocking.length) {
+        return `${data.message} Questions still blocking: ${blocking.join(", ")}.`;
+    }
+
     if (typeof data?.message === "string") return data.message;
     if (typeof data?.detail === "string") return data.detail;
     if (typeof data?.error === "string") return data.error;
@@ -39,8 +48,8 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                 current.length
                     ? current
                     : response.results
-                          .filter((r) => !r.reviewed && r.status !== "DETECTED")
-                          .map((r) => r.id),
+                        .filter((r) => !r.reviewed && ["MULTIPLE_MARKS", "UNCERTAIN"].includes(r.status))
+                        .map((r) => r.id),
             );
 
             const detected = response.detected_student_id || "";
@@ -73,11 +82,11 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                 results: current.results.map((item) =>
                     item.id === result.id
                         ? {
-                              ...item,
-                              selected_label: label,
-                              status: label ? "DETECTED" : "BLANK",
-                              reviewed: true,
-                          }
+                            ...item,
+                            selected_label: label,
+                            status: label ? "DETECTED" : "BLANK",
+                            reviewed: true,
+                        }
                         : item,
                 ),
             }));
@@ -97,7 +106,7 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
         }
 
         const unresolved = data.results.filter(
-            (r) => !r.reviewed && r.status !== "DETECTED",
+            (r) => !r.reviewed && ["MULTIPLE_MARKS", "UNCERTAIN"].includes(r.status),
         ).length;
 
         if (unresolved > 0) {
@@ -239,11 +248,10 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                                                         Question {row.question_order}
                                                     </span>
                                                     <span
-                                                        className={`text-xs font-medium ${
-                                                            row.reviewed
+                                                        className={`text-xs font-medium ${row.reviewed
                                                                 ? "text-emerald-700"
                                                                 : "text-amber-700"
-                                                        }`}
+                                                            }`}
                                                     >
                                                         {row.reviewed
                                                             ? "Confirmed"
@@ -265,11 +273,10 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                                                                     type="button"
                                                                     onClick={() => handleChoose(row, option.label)}
                                                                     disabled={busy || Boolean(graded)}
-                                                                    className={`size-10 rounded-lg border text-sm font-semibold disabled:opacity-60 ${
-                                                                        active
+                                                                    className={`size-10 rounded-lg border text-sm font-semibold disabled:opacity-60 ${active
                                                                             ? "border-blue-600 bg-blue-600 text-white"
                                                                             : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                                                                    }`}
+                                                                        }`}
                                                                 >
                                                                     {option.label}
                                                                 </button>
@@ -280,11 +287,10 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                                                         type="button"
                                                         onClick={() => handleChoose(row, "")}
                                                         disabled={busy || Boolean(graded)}
-                                                        className={`h-10 rounded-lg border px-3 text-sm font-semibold disabled:opacity-60 ${
-                                                            row.reviewed && row.selected_label === ""
+                                                        className={`h-10 rounded-lg border px-3 text-sm font-semibold disabled:opacity-60 ${row.reviewed && row.selected_label === ""
                                                                 ? "border-blue-600 bg-blue-600 text-white"
                                                                 : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                                                        }`}
+                                                            }`}
                                                     >
                                                         Blank
                                                     </button>

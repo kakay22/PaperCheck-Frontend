@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import CameraCapture from "../components/CameraCapture";
 import ScanReviewPanel from "../components/ScanReviewPanel";
+import {
+    getScanPreview,
+    getScanResults,
+    processScanFile,
+    uploadScans,
+} from "../api/scanning";
 import {
     ArrowLeft,
     Camera,
@@ -15,7 +22,6 @@ import {
 import toast from "react-hot-toast";
 
 import api from "../api/client";
-import { getScanPreview, processScanFile, uploadScans } from "../api/scanning";
 
 const ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 const ACCEPTED_MIME = ["image/jpeg", "image/png", "image/webp"];
@@ -50,30 +56,75 @@ function getErrorMessage(error) {
     return error.message || "Something went wrong. Please try again.";
 }
 
-function friendlyScanError(message) {
+function friendlyScanError(message, error) {
     const text = String(message || "");
+    const lower = text.toLowerCase();
 
-    if (text.toLowerCase().includes("corner markers")) {
-        return "Retake the photo: all four black corner squares must be fully visible. Lay the sheet flat, hold the phone upright above it, and avoid shadows.";
+    if (error && !error.response) {
+        return "Can't reach the server. Check your Wi-Fi and that the backend is running, then try again.";
     }
 
-    if (text.toLowerCase().includes("resolution")) {
-        return "Retake the photo: the image resolution is too low. Move closer or use the rear camera.";
+    if (lower.includes("corner markers")) {
+        return "The four black corner squares weren't found. Retake the photo with the whole sheet in view, lying flat, with no shadows across the corners.";
     }
 
-    return text;
+    if (lower.includes("resolution")) {
+        return "The photo is too small or blurry. Move closer, hold steady, and use the rear camera.";
+    }
+
+    if (lower.includes("unable to read image") || lower.includes("invalid or unsupported")) {
+        return "That file couldn't be read as an image. Use a JPG, PNG, or WebP photo (not HEIC).";
+    }
+
+    if (lower.includes("unsupported file type")) {
+        return "Unsupported file type. Use JPG, PNG, or WebP.";
+    }
+
+    if (lower.includes("must be between 1 byte and 15 mb")) {
+        return "The photo is larger than 15 MB. Retake it at a lower quality setting.";
+    }
+
+    if (lower.includes("published")) {
+        return "This assessment isn't published, so it can't be scanned.";
+    }
+
+    return text || "The scan failed. Please retake the photo.";
 }
 
 function ScanItemCard({ item, onRetake }) {
     const result = item.result;
+
+    const shaded = result
+        ? result.answers.filter((a) => a.status !== "BLANK").length
+        : 0;
+    const blank = result
+        ? result.answers.filter((a) => a.status === "BLANK").length
+        : 0;
     const flagged = result
-        ? result.answers.filter((answer) => answer.status !== "DETECTED").length
+        ? result.answers.filter(
+            (a) => a.status === "MULTIPLE_MARKS" || a.status === "UNCERTAIN",
+        ).length
         : 0;
 
     const [previewUrl, setPreviewUrl] = useState("");
     const [previewLoading, setPreviewLoading] = useState(false);
     const [reviewOpen, setReviewOpen] = useState(false);
     const [recorded, setRecorded] = useState(null);
+
+    const [live, setLive] = useState(null);
+
+    async function refreshLive() {
+        try {
+            setLive(await getScanResults(item.id));
+        } catch {
+            /* keep the last known numbers */
+        }
+    }
+
+    useEffect(() => {
+        if (item.state === "done") refreshLive();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [item.state]);
 
     useEffect(() => {
         return () => {
@@ -88,8 +139,8 @@ function ScanItemCard({ item, onRetake }) {
             // Fetched fresh each time so corrections show up.
             const url = await getScanPreview(item.id);
             setPreviewUrl(url);
-        } catch {
-            toast.error("Unable to load the marked sheet.");
+        } catch (error) {
+            toast.error(error.message || "Unable to load the marked sheet.");
         } finally {
             setPreviewLoading(false);
         }
@@ -143,6 +194,35 @@ function ScanItemCard({ item, onRetake }) {
 
             {item.state === "done" && result && (
                 <>
+                    {recorded ? (
+                        <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-center">
+                            <p className="text-xs text-slate-500">{recorded.studentName}</p>
+                            <p className="mt-1 text-2xl font-bold text-slate-900">
+                                {recorded.score} / {recorded.possible}
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-emerald-700">
+                                Final score recorded
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="mt-3 rounded-lg bg-blue-50 p-3 text-center">
+                            <p className="text-xs text-slate-500">
+                                Preliminary count (not the final score)
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-slate-900">
+                                {live ? live.correct_count : result.correct_count} correct
+                            </p>
+                            {live ? live.shaded_count : shaded} shaded · {live ? live.blank_count : blank} blank
+                            <p className="mt-1 text-xs text-slate-500">
+                                Tap Review &amp; record score to get the final score.
+                            </p>
+                            {flagged > 0 && (
+                                <p className="mt-1 text-xs text-amber-700">
+                                    {flagged} unclear answer(s) are not counted yet.
+                                </p>
+                            )}
+                        </div>
+                    )}
                     <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
                         <div>
                             <dt className="text-xs text-slate-500">ID read from sheet</dt>
@@ -163,7 +243,7 @@ function ScanItemCard({ item, onRetake }) {
                         <div>
                             <dt className="text-xs text-slate-500">Answers read</dt>
                             <dd className="mt-1 font-medium text-slate-900">
-                                {result.questions_processed}
+                                {shaded}
                             </dd>
                         </div>
 
@@ -178,11 +258,27 @@ function ScanItemCard({ item, onRetake }) {
                         </div>
                     </dl>
 
-                    {recorded ? (
-                        <p className="mt-4 rounded-lg bg-emerald-50 p-3 text-center text-sm font-semibold text-emerald-800">
-                            {recorded.studentName}: {recorded.score} / {recorded.possible} · Recorded
-                        </p>
-                    ) : (
+                    {!recorded && (!result.detected_student_id ||
+                        result.detected_student_id.includes("?") ||
+                        !result.suggested_student ||
+                        flagged > 0) && (
+                            <ul className="mt-3 space-y-1 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+                                {(!result.detected_student_id ||
+                                    result.detected_student_id.includes("?")) && (
+                                        <li>The student ID wasn't read cleanly. You can type it in during review.</li>
+                                    )}
+                                {result.detected_student_id &&
+                                    !result.detected_student_id.includes("?") &&
+                                    !result.suggested_student && (
+                                        <li>No enrolled student matches this ID.</li>
+                                    )}
+                                {flagged > 0 && (
+                                    <li>{flagged} answer(s) are blank, double-marked, or unclear and need review.</li>
+                                )}
+                            </ul>
+                        )}
+
+                    {!recorded && (
                         <button
                             type="button"
                             onClick={() => setReviewOpen(true)}
@@ -212,7 +308,10 @@ function ScanItemCard({ item, onRetake }) {
                 <ScanReviewPanel
                     scanFileId={item.id}
                     filename={item.filename}
-                    onClose={() => setReviewOpen(false)}
+                    onClose={() => {
+                        setReviewOpen(false);
+                        refreshLive();
+                    }}
                     onRecorded={(info) => setRecorded(info)}
                 />
             )}
@@ -238,15 +337,15 @@ function ScanItemCard({ item, onRetake }) {
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
                                     <span className="inline-flex items-center gap-1.5">
                                         <span className="size-3 rounded-full border-2 border-emerald-600" />
-                                        Correct / right answer
+                                        Correct
                                     </span>
                                     <span className="inline-flex items-center gap-1.5">
                                         <span className="size-3 rounded-full border-2 border-red-600" />
-                                        Wrong answer
+                                        Wrong
                                     </span>
                                     <span className="inline-flex items-center gap-1.5">
-                                        <span className="size-3 rounded-full border-2 border-amber-500" />
-                                        Needs review
+                                        <span className="size-3 rounded-full border-2 border-orange-500" />
+                                        Duplicate / unclear
                                     </span>
                                 </div>
                             </div>
@@ -286,6 +385,23 @@ export default function ScanAnswers() {
     const [files, setFiles] = useState([]);
     const [items, setItems] = useState([]);
     const [busy, setBusy] = useState(false);
+    const [uploadError, setUploadError] = useState("");
+    const [cornerError, setCornerError] = useState("");
+
+    const [cameraOpen, setCameraOpen] = useState(false);
+
+    const canUseLiveCamera =
+        typeof window !== "undefined" &&
+        window.isSecureContext &&
+        Boolean(navigator.mediaDevices?.getUserMedia);
+
+    function openCamera() {
+        if (canUseLiveCamera) {
+            setCameraOpen(true);
+        } else {
+            cameraRef.current?.click();
+        }
+    }
 
     useEffect(() => {
         async function load() {
@@ -330,6 +446,8 @@ export default function ScanAnswers() {
         if (busy || list.length === 0) return false;
 
         setBusy(true);
+        setUploadError("");
+        setCornerError("");
 
         try {
             const upload = await uploadScans(assessmentId, list);
@@ -349,15 +467,25 @@ export default function ScanAnswers() {
                     const result = await processScanFile(item.id);
                     patchItem(item.id, { state: "done", result });
                 } catch (error) {
-                    const message = friendlyScanError(getErrorMessage(error));
-                    patchItem(item.id, { state: "failed", error: message });
-                    toast.error(message);
+                    const rawMessage = getErrorMessage(error);
+                    const message = friendlyScanError(rawMessage, error);
+
+                    if (rawMessage.toLowerCase().includes("corner markers")) {
+                        // Not accepted: drop the card and make the teacher retake.
+                        setItems((current) => current.filter((i) => i.id !== item.id));
+                        setCornerError(message);
+                    } else {
+                        patchItem(item.id, { state: "failed", error: message });
+                        toast.error(message);
+                    }
                 }
             }
 
             return true;
         } catch (error) {
-            toast.error(getErrorMessage(error));
+            const message = friendlyScanError(getErrorMessage(error), error);
+            setUploadError(message);
+            toast.error(message);
             return false;
         } finally {
             setBusy(false);
@@ -382,11 +510,27 @@ export default function ScanAnswers() {
             return;
         }
 
-        await runScan(valid);
+        try {
+            // Copy the bytes now, before the browser can drop the file handle.
+            const copies = await Promise.all(
+                valid.map(
+                    async (file, index) =>
+                        new File(
+                            [await file.arrayBuffer()],
+                            file.name || `photo-${Date.now()}-${index}.jpg`,
+                            { type: file.type || "image/jpeg" },
+                        ),
+                ),
+            );
+
+            await runScan(copies);
+        } catch {
+            toast.error("Could not read the photo. Please try again.");
+        }
     }
 
     function handleRetake() {
-        cameraRef.current?.click();
+        openCamera();
     }
 
     if (loading) {
@@ -465,6 +609,13 @@ export default function ScanAnswers() {
                         className="hidden"
                     />
 
+                    {!canUseLiveCamera && (
+                        <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+                            The camera guide needs a secure (https) address. You are on a plain
+                            http address, so Take photo will open your phone's camera app instead.
+                        </p>
+                    )}
+
                     <ul className="list-disc space-y-1 rounded-lg bg-slate-50 p-3 pl-7 text-xs text-slate-600">
                         <li>Lay the sheet flat and hold the phone upright above it.</li>
                         <li>Keep all four black corner squares fully in frame.</li>
@@ -475,7 +626,7 @@ export default function ScanAnswers() {
                     <div className="grid grid-cols-2 gap-3">
                         <button
                             type="button"
-                            onClick={() => cameraRef.current?.click()}
+                            onClick={openCamera}
                             disabled={busy}
                             className="flex flex-col items-center justify-center gap-2 rounded-xl bg-blue-50 px-3 py-6 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                         >
@@ -544,6 +695,12 @@ export default function ScanAnswers() {
                 </section>
             )}
 
+            {uploadError && (
+                <p className="whitespace-pre-line rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                    {uploadError}
+                </p>
+            )}
+
             {items.length > 0 && (
                 <section className="space-y-3">
                     <h2 className="text-base font-semibold text-slate-900">Results</h2>
@@ -551,6 +708,59 @@ export default function ScanAnswers() {
                         <ScanItemCard key={item.id} item={item} onRetake={handleRetake} />
                     ))}
                 </section>
+            )}
+
+            {cornerError && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4">
+                    <section
+                        role="alertdialog"
+                        aria-modal="true"
+                        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+                    >
+                        <div className="flex items-start gap-3">
+                            <CircleAlert size={22} className="mt-0.5 shrink-0 text-red-600" />
+                            <div>
+                                <h2 className="text-base font-bold text-slate-900">
+                                    Photo not accepted
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-600">{cornerError}</p>
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setCornerError("");
+                                openCamera();
+                            }}
+                            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                        >
+                            <Camera size={16} />
+                            Retake photo
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setCornerError("")}
+                            className="mt-2 w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                        >
+                            Cancel
+                        </button>
+                    </section>
+                </div>
+            )}
+
+            {cameraOpen && (
+                <CameraCapture
+                    onClose={() => setCameraOpen(false)}
+                    onFallback={() => {
+                        setCameraOpen(false);
+                        cameraRef.current?.click();
+                    }}
+                    onCapture={(file) => {
+                        setCameraOpen(false);
+                        runScan([file]);
+                    }}
+                />
             )}
         </div>
     );

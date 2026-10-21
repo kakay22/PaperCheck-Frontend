@@ -41,8 +41,8 @@ export default function Login() {
       } else {
         toast.error(
           data?.detail ||
-            data?.non_field_errors?.[0] ||
-            "Invalid username or password.",
+          data?.non_field_errors?.[0] ||
+          "Invalid username or password.",
         );
       }
     } finally {
@@ -211,6 +211,18 @@ export default function Login() {
               {!loading && <ArrowRight size={18} />}
             </button>
           </form>
+
+
+          <div className="mt-5 text-center text-sm text-slate-600">
+            Don't have a teacher account?{" "}
+            <Link
+              to="/register"
+              className="font-semibold text-blue-600 transition hover:text-blue-700"
+            >
+              Register here
+            </Link>
+          </div>
+
 
           <div className="mt-8 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
             <LockKeyhole

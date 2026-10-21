@@ -58,9 +58,23 @@ export async function approveSubmission(submissionId) {
 }
 
 export async function getScanPreview(scanFileId) {
-  const response = await api.get(`/scan-files/${scanFileId}/preview/`, {
-    responseType: "blob",
-  });
+  try {
+    const response = await api.get(`/scan-files/${scanFileId}/preview/`, {
+      responseType: "blob",
+    });
 
-  return window.URL.createObjectURL(response.data);
+    const blob = new Blob([response.data], { type: "image/jpeg" });
+    return window.URL.createObjectURL(blob);
+  } catch (error) {
+    const data = error.response?.data;
+    if (data instanceof Blob) {
+      try {
+        const body = JSON.parse(await data.text());
+        error.message = body.message || body.detail || error.message;
+      } catch {
+        /* keep the default message */
+      }
+    }
+    throw error;
+  }
 }

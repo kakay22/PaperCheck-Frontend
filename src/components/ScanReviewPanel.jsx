@@ -8,6 +8,7 @@ import {
     getScanResults,
     gradeScanFile,
     reviewScanResult,
+    submitEnumerationAnswers,
 } from "../api/scanning";
 
 function getErrorMessage(error) {
@@ -37,11 +38,26 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
     const [studentId, setStudentId] = useState("");
     const [graded, setGraded] = useState(null);
     const [approved, setApproved] = useState(false);
+    const [enumerationAnswers, setEnumerationAnswers] = useState({});
 
     const load = useCallback(async () => {
         try {
             const response = await getScanResults(scanFileId);
             setData(response);
+
+            const initialEnumerationAnswers = {};
+
+            (response.enumeration_questions || []).forEach((question) => {
+                const count = Number(question.item_count || 0);
+                const saved = question.saved_answers || [];
+
+                initialEnumerationAnswers[question.id] = Array.from(
+                    { length: count },
+                    (_, index) => saved[index] || "",
+                );
+            });
+
+            setEnumerationAnswers(initialEnumerationAnswers);
 
             // Remember which answers were flagged when the panel first opened.
             setFlaggedIds((current) =>
@@ -97,6 +113,19 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
         }
     }
 
+    function handleEnumerationChange(questionId, index, value) {
+        setEnumerationAnswers((current) => {
+            const existing = current[questionId] || [];
+            const next = [...existing];
+            next[index] = value;
+
+            return {
+                ...current,
+                [questionId]: next,
+            };
+        });
+    }
+
     async function handleGrade() {
         const id = studentId.trim();
 
@@ -118,7 +147,28 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
 
         try {
             await confirmDetectedAnswers(scanFileId);
-            const result = await gradeScanFile(scanFileId, id);
+
+            let result = await gradeScanFile(scanFileId, id);
+
+            const enumerationQuestions = data.enumeration_questions || [];
+
+            for (const question of enumerationQuestions) {
+                const answers = enumerationAnswers[question.id] || [];
+
+                const enumerationResult = await submitEnumerationAnswers(
+                    result.submission_id,
+                    question.id,
+                    answers,
+                );
+
+                result = {
+                    ...result,
+                    total_points_earned:
+                        enumerationResult.submission_score ??
+                        result.total_points_earned,
+                };
+            }
+
             setGraded(result);
         } catch (error) {
             toast.error(getErrorMessage(error));
@@ -249,8 +299,8 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                                                     </span>
                                                     <span
                                                         className={`text-xs font-medium ${row.reviewed
-                                                                ? "text-emerald-700"
-                                                                : "text-amber-700"
+                                                            ? "text-emerald-700"
+                                                            : "text-amber-700"
                                                             }`}
                                                     >
                                                         {row.reviewed
@@ -274,8 +324,8 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                                                                     onClick={() => handleChoose(row, option.label)}
                                                                     disabled={busy || Boolean(graded)}
                                                                     className={`size-10 rounded-lg border text-sm font-semibold disabled:opacity-60 ${active
-                                                                            ? "border-blue-600 bg-blue-600 text-white"
-                                                                            : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                                                                        ? "border-blue-600 bg-blue-600 text-white"
+                                                                        : "border-slate-300 text-slate-700 hover:bg-slate-50"
                                                                         }`}
                                                                 >
                                                                     {option.label}
@@ -288,8 +338,8 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                                                         onClick={() => handleChoose(row, "")}
                                                         disabled={busy || Boolean(graded)}
                                                         className={`h-10 rounded-lg border px-3 text-sm font-semibold disabled:opacity-60 ${row.reviewed && row.selected_label === ""
-                                                                ? "border-blue-600 bg-blue-600 text-white"
-                                                                : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                                                            ? "border-blue-600 bg-blue-600 text-white"
+                                                            : "border-slate-300 text-slate-700 hover:bg-slate-50"
                                                             }`}
                                                     >
                                                         Blank
@@ -300,6 +350,93 @@ export default function ScanReviewPanel({ scanFileId, filename, onClose, onRecor
                                     </ul>
                                 )}
                             </div>
+
+
+                            {(data.enumeration_questions || []).length > 0 && (
+                                <section>
+                                    <h3 className="text-sm font-semibold text-slate-900">
+                                        Enumeration answers
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Enter one answer per field. Answers are scored using
+                                        the assessment's answer key.
+                                    </p>
+
+                                    <div className="mt-3 space-y-4">
+                                        {data.enumeration_questions.map((question) => {
+                                            const count = Number(question.item_count || 0);
+                                            const answers = enumerationAnswers[question.id] || [];
+
+                                            return (
+                                                <div
+                                                    key={question.id}
+                                                    className="rounded-xl border border-slate-200 p-3"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-slate-900">
+                                                                Question {question.order}
+                                                            </p>
+                                                            <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
+                                                                {question.prompt}
+                                                            </p>
+                                                        </div>
+
+                                                        <span className="shrink-0 text-xs text-slate-500">
+                                                            {question.points} pts
+                                                        </span>
+                                                    </div>
+
+                                                    <p className="mt-2 text-xs text-slate-500">
+                                                        {count} answer{count === 1 ? "" : "s"}
+                                                        {" · "}
+                                                        {question.ordered
+                                                            ? "Order matters"
+                                                            : "Any order"}
+                                                        {question.points_per_item
+                                                            ? ` · ${question.points_per_item} point(s) per item`
+                                                            : ""}
+                                                    </p>
+
+                                                    <div className="mt-3 space-y-2">
+                                                        {Array.from({ length: count }, (_, index) => (
+                                                            <div
+                                                                key={index}
+                                                                className="flex items-center gap-3"
+                                                            >
+                                                                <span className="w-6 shrink-0 text-right text-xs font-medium text-slate-400">
+                                                                    {index + 1}.
+                                                                </span>
+
+                                                                <input
+                                                                    value={answers[index] || ""}
+                                                                    onChange={(event) =>
+                                                                        handleEnumerationChange(
+                                                                            question.id,
+                                                                            index,
+                                                                            event.target.value,
+                                                                        )
+                                                                    }
+                                                                    disabled={busy || Boolean(graded)}
+                                                                    placeholder={`Answer ${index + 1}`}
+                                                                    className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+                                                                />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                    {question.awarded_points !== null && (
+                                                        <p className="mt-2 text-xs text-slate-500">
+                                                            Previously saved: {question.awarded_points} points
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </section>
+                            )}
 
                             {graded && (
                                 <div className="rounded-xl bg-blue-50 p-4 text-center">

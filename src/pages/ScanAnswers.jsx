@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import CameraCapture from "../components/CameraCapture";
 import ScanReviewPanel from "../components/ScanReviewPanel";
+import EnumerationPhotoReview from "../components/scanning/EnumerationPhotoReview";
+import { submitEnumerationPhotoReview } from "../api/scanning";
 import {
     getScanPreview,
     getScanResults,
@@ -25,6 +27,8 @@ import api from "../api/client";
 
 const ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 const ACCEPTED_MIME = ["image/jpeg", "image/png", "image/webp"];
+
+
 
 function isAcceptedImage(file) {
     const name = file.name.toLowerCase();
@@ -382,6 +386,7 @@ export default function ScanAnswers() {
 
     const [assessment, setAssessment] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [assessmentQuestions, setAssessmentQuestions] = useState([]);
     const [files, setFiles] = useState([]);
     const [items, setItems] = useState([]);
     const [busy, setBusy] = useState(false);
@@ -406,8 +411,19 @@ export default function ScanAnswers() {
     useEffect(() => {
         async function load() {
             try {
-                const response = await api.get(`/assessments/${assessmentId}/`);
-                setAssessment(response.data);
+                const [assessmentResponse, questionsResponse] = await Promise.all([
+                    api.get(`/assessments/${assessmentId}/`),
+                    api.get(`/questions/?assessment=${assessmentId}`),
+                ]);
+
+                setAssessment(assessmentResponse.data);
+
+                const questionData = questionsResponse.data;
+                const questionList = Array.isArray(questionData)
+                    ? questionData
+                    : questionData.results ?? [];
+
+                setAssessmentQuestions(questionList);
             } catch (error) {
                 toast.error(getErrorMessage(error));
             } finally {
@@ -465,7 +481,17 @@ export default function ScanAnswers() {
 
                 try {
                     const result = await processScanFile(item.id);
-                    patchItem(item.id, { state: "done", result });
+
+                    console.log("SCAN PROCESS RESULT:", result);
+                    console.log("ENUMERATION REVIEW:", result.enumeration_review);
+
+                    patchItem(item.id, {
+                        state: "done",
+                        result,
+                        ...(result.enumeration_review
+                            ? { reviewMode: "enumeration" }
+                            : {}),
+                    });
                 } catch (error) {
                     const rawMessage = getErrorMessage(error);
                     const message = friendlyScanError(rawMessage, error);
@@ -560,6 +586,16 @@ export default function ScanAnswers() {
 
     const published = assessment.status === "PUBLISHED";
 
+    const hasMultipleChoice = assessmentQuestions.some(
+        (question) => question.question_type === "MULTIPLE_CHOICE",
+    );
+
+    const hasEnumeration = assessmentQuestions.some(
+        (question) => question.question_type === "ENUMERATION",
+    );
+
+    const enumerationOnly = hasEnumeration && !hasMultipleChoice;
+
     return (
         <div className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
             <button
@@ -579,8 +615,9 @@ export default function ScanAnswers() {
                     {assessment.title}
                 </h1>
                 <p className="mt-1 text-sm text-slate-500">
-                    Photograph each sheet flat, with all four black corner squares
-                    visible and good light.
+                    {enumerationOnly
+                        ? "Photograph the entire answer sheet clearly so the handwritten answers are easy to read. Corner markers are not required."
+                        : "Photograph each sheet flat, with all four black corner squares visible and good light."}
                 </p>
             </header>
 
@@ -616,12 +653,22 @@ export default function ScanAnswers() {
                         </p>
                     )}
 
-                    <ul className="list-disc space-y-1 rounded-lg bg-slate-50 p-3 pl-7 text-xs text-slate-600">
-                        <li>Lay the sheet flat and hold the phone upright above it.</li>
-                        <li>Keep all four black corner squares fully in frame.</li>
-                        <li>Avoid shadows across the page, especially at the corners.</li>
-                        <li>Take photos in portrait with the sheet the right way up.</li>
-                    </ul>
+                    {enumerationOnly ? (
+                        <ul className="list-disc space-y-1 rounded-lg bg-blue-50 p-3 pl-7 text-xs text-blue-800">
+                            <li>Keep the entire answer sheet inside the photo.</li>
+                            <li>Make sure the student's handwriting is sharp and readable.</li>
+                            <li>Use good lighting and avoid shadows or glare.</li>
+                            <li>Keep the page upright and avoid blurry photos.</li>
+                            <li>Corner markers are not required for enumeration.</li>
+                        </ul>
+                    ) : (
+                        <ul className="list-disc space-y-1 rounded-lg bg-slate-50 p-3 pl-7 text-xs text-slate-600">
+                            <li>Lay the sheet flat and hold the phone upright above it.</li>
+                            <li>Keep all four black corner squares fully in frame.</li>
+                            <li>Avoid shadows across the page, especially at the corners.</li>
+                            <li>Take photos in portrait with the sheet the right way up.</li>
+                        </ul>
+                    )}
 
                     <div className="grid grid-cols-2 gap-3">
                         <button
@@ -704,9 +751,42 @@ export default function ScanAnswers() {
             {items.length > 0 && (
                 <section className="space-y-3">
                     <h2 className="text-base font-semibold text-slate-900">Results</h2>
-                    {items.map((item) => (
-                        <ScanItemCard key={item.id} item={item} onRetake={handleRetake} />
-                    ))}
+                    {items.map((item) =>
+                        item.reviewMode === "enumeration" ? (
+                            <EnumerationPhotoReview
+                                key={item.id}
+                                item={item}
+                                assessment={assessment}
+                                onComplete={(details) => {
+                                    patchItem(item.id, {
+                                        reviewMode: "enumeration-complete",
+                                        reviewDetails: details,
+                                    });
+                                }}
+                            />
+                        ) : item.reviewMode === "enumeration-complete" ? (
+                            <article
+                                key={item.id}
+                                className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+                            >
+                                <p className="font-semibold text-emerald-800">
+                                    Enumeration submission saved
+                                </p>
+                                <p className="mt-1 text-sm text-emerald-700">
+                                    {item.filename} — {item.reviewDetails?.studentName}
+                                </p>
+                                <p className="mt-1 text-sm text-emerald-700">
+                                    Score: {item.reviewDetails?.score ?? "Pending"}
+                                </p>
+                            </article>
+                        ) : (
+                            <ScanItemCard
+                                key={item.id}
+                                item={item}
+                                onRetake={handleRetake}
+                            />
+                        ),
+                    )}
                 </section>
             )}
 
@@ -752,6 +832,7 @@ export default function ScanAnswers() {
             {cameraOpen && (
                 <CameraCapture
                     onClose={() => setCameraOpen(false)}
+                    enumerationMode={enumerationOnly}
                     onFallback={() => {
                         setCameraOpen(false);
                         cameraRef.current?.click();

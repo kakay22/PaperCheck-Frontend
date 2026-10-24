@@ -1,6 +1,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import EnumerationQuestionFields from "../components/EnumerationQuestionFields";
 import {
   ArrowLeft,
   Check,
@@ -37,6 +38,7 @@ const primaryButton =
 const secondaryButton =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50";
 
+
 function emptyQuestion(order = 1) {
   return {
     prompt: "",
@@ -50,8 +52,17 @@ function emptyQuestion(order = 1) {
       { label: "C", text: "", is_correct: false },
       { label: "D", text: "", is_correct: false },
     ],
+    enum_ordered: false,
+    enum_item_count: 3,
+    enum_points_per_item: "1.00",
+    key_items: [
+      { position: 1, variants_text: "" },
+      { position: 2, variants_text: "" },
+      { position: 3, variants_text: "" },
+    ],
   };
 }
+
 
 function getErrorMessage(error) {
   const data = error.response?.data;
@@ -64,10 +75,10 @@ function getErrorMessage(error) {
       .map(([field, messages]) => {
         const message = Array.isArray(messages)
           ? messages
-              .map((item) =>
-                typeof item === "string" ? item : JSON.stringify(item),
-              )
-              .join(" ")
+            .map((item) =>
+              typeof item === "string" ? item : JSON.stringify(item),
+            )
+            .join(" ")
           : typeof messages === "object"
             ? JSON.stringify(messages)
             : String(messages);
@@ -107,13 +118,36 @@ function QuestionForm({
 }) {
   const [form, setForm] = useState(() => ({
     ...initialQuestion,
+    points: String(initialQuestion.points ?? "1.00"),
+    enum_item_count: initialQuestion.enum_item_count ?? 3,
+    enum_points_per_item: String(
+      initialQuestion.enum_points_per_item ?? "1.00",
+    ),
+    enum_ordered: initialQuestion.enum_ordered ?? false,
     options: (initialQuestion.options || []).map((option) => ({
       ...option,
+    })),
+    key_items: (initialQuestion.key_items || []).map((item) => ({
+      ...item,
+      variants_text: Array.isArray(item.variants)
+        ? item.variants.join(", ")
+        : item.variants_text ?? "",
     })),
   }));
 
   function updateField(name, value) {
     setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  function updateKeyItem(position, value) {
+    setForm((current) => ({
+      ...current,
+      key_items: current.key_items.map((item) =>
+        Number(item.position) === position
+          ? { ...item, variants_text: value }
+          : item,
+      ),
+    }));
   }
 
   function updateOption(index, changes) {
@@ -169,6 +203,7 @@ function QuestionForm({
     }));
   }
 
+
   function handleSubmit(event) {
     event.preventDefault();
 
@@ -177,49 +212,141 @@ function QuestionForm({
       return;
     }
 
-    if (form.options.length < 2) {
-      toast.error("Add at least two answer choices.");
-      return;
-    }
-
-    if (form.options.some((option) => !option.text.trim())) {
-      toast.error("Fill in every answer choice.");
-      return;
-    }
-
-    if (form.options.filter((option) => option.is_correct).length !== 1) {
-      toast.error("Select exactly one correct answer.");
-      return;
-    }
-
-    const points = Number(form.points);
     const order = Number(form.order);
-
-    if (!Number.isFinite(points) || points <= 0) {
-      toast.error("Points must be greater than zero.");
-      return;
-    }
 
     if (!Number.isInteger(order) || order < 1) {
       toast.error("Question number must be a positive whole number.");
       return;
     }
 
-    onSave({
+    let questionData = {
       ...form,
       prompt: form.prompt.trim(),
       order,
-      points: points.toFixed(2),
-      options: form.options.map((option, index) => ({
-        ...option,
-        label: LETTERS[index],
-        text: option.text.trim(),
-      })),
-    });
+    };
+
+    if (form.question_type === "MULTIPLE_CHOICE") {
+      if (form.options.length < 2) {
+        toast.error("Add at least two answer choices.");
+        return;
+      }
+
+      if (form.options.some((option) => !option.text.trim())) {
+        toast.error("Fill in every answer choice.");
+        return;
+      }
+
+      if (form.options.filter((option) => option.is_correct).length !== 1) {
+        toast.error("Select exactly one correct answer.");
+        return;
+      }
+
+      const points = Number(form.points);
+
+      if (!Number.isFinite(points) || points <= 0) {
+        toast.error("Points must be greater than zero.");
+        return;
+      }
+
+      questionData = {
+        ...questionData,
+        points: points.toFixed(2),
+        options: form.options.map((option, index) => ({
+          ...option,
+          label: LETTERS[index],
+          text: option.text.trim(),
+        })),
+      };
+    } else if (form.question_type === "ENUMERATION") {
+      const count = Number(form.enum_item_count);
+      const perItem = Number(form.enum_points_per_item);
+
+      if (!Number.isInteger(count) || count < 1 || count > 100) {
+        toast.error("Enumeration must have between 1 and 100 items.");
+        return;
+      }
+
+      if (!Number.isFinite(perItem) || perItem <= 0) {
+        toast.error("Points per item must be greater than zero.");
+        return;
+      }
+
+      const keyItems = Array.from({ length: count }, (_, index) => {
+        const position = index + 1;
+
+        const item = form.key_items.find(
+          (entry) => Number(entry.position) === position,
+        );
+
+        return {
+          position,
+          variants: (item?.variants_text ?? "")
+            .split(",")
+            .map((answer) => answer.trim())
+            .filter(Boolean),
+        };
+      });
+
+      if (keyItems.some((item) => item.variants.length === 0)) {
+        toast.error("Enter at least one accepted answer for every item.");
+        return;
+      }
+
+      questionData = {
+        ...questionData,
+        enum_item_count: count,
+        enum_points_per_item: perItem.toFixed(2),
+        enum_ordered: Boolean(form.enum_ordered),
+        points: (count * perItem).toFixed(2),
+        key_items: keyItems,
+        options: [],
+      };
+    } else {
+      toast.error("Select a supported question type.");
+      return;
+    }
+
+    onSave(questionData);
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Question type */}
+      <div>
+        <label
+          htmlFor="question-type"
+          className="mb-2 block text-sm font-semibold text-slate-800"
+        >
+          Question type
+        </label>
+
+        <select
+          id="question-type"
+          value={form.question_type}
+          onChange={(event) => {
+            const questionType = event.target.value;
+
+            updateField("question_type", questionType);
+
+            if (questionType === "ENUMERATION") {
+              const count = Number(form.enum_item_count) || 3;
+              const pointsPerItem =
+                Number(form.enum_points_per_item) || 1;
+
+              updateField(
+                "points",
+                (count * pointsPerItem).toFixed(2)
+              );
+            }
+          }}
+          className={inputClass}
+        >
+          <option value="MULTIPLE_CHOICE">Multiple choice</option>
+          <option value="ENUMERATION">Enumeration</option>
+        </select>
+      </div>
+
+      {/* Question text */}
       <div>
         <div className="mb-2 flex items-center justify-between gap-3">
           <label
@@ -228,6 +355,7 @@ function QuestionForm({
           >
             Question text
           </label>
+
           <span className="text-xs text-slate-400">
             Question {form.order || questionNumber}
           </span>
@@ -244,133 +372,162 @@ function QuestionForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label
-            htmlFor="question-order"
-            className="mb-2 block text-sm font-semibold text-slate-800"
-          >
-            Question number
-          </label>
-          <input
-            id="question-order"
-            type="number"
-            min="1"
-            step="1"
-            value={form.order}
-            onChange={(event) => updateField("order", event.target.value)}
-            required
-            className={inputClass}
-          />
-        </div>
+      {/* Question number */}
+      <div>
+        <label
+          htmlFor="question-order"
+          className="mb-2 block text-sm font-semibold text-slate-800"
+        >
+          Question number
+        </label>
 
-        <div>
-          <label
-            htmlFor="question-points"
-            className="mb-2 block text-sm font-semibold text-slate-800"
-          >
-            Points
-          </label>
-          <input
-            id="question-points"
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={form.points}
-            onChange={(event) => updateField("points", event.target.value)}
-            required
-            className={inputClass}
-          />
-        </div>
+        <input
+          id="question-order"
+          type="number"
+          min="1"
+          step="1"
+          value={form.order}
+          onChange={(event) => updateField("order", event.target.value)}
+          required
+          className={inputClass}
+        />
       </div>
 
-      <div>
-        <div className="mb-3 flex items-start justify-between gap-3">
+      {/* Multiple-choice fields */}
+      {form.question_type === "MULTIPLE_CHOICE" && (
+        <>
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              Answer choices
-            </h3>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              Select the correct answer. Only one choice can be correct.
-            </p>
+            <label
+              htmlFor="question-points"
+              className="mb-2 block text-sm font-semibold text-slate-800"
+            >
+              Points
+            </label>
+
+            <input
+              id="question-points"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={form.points}
+              onChange={(event) =>
+                updateField("points", event.target.value)
+              }
+              required
+              className={inputClass}
+            />
           </div>
 
-          <button
-            type="button"
-            onClick={addOption}
-            disabled={form.options.length >= LETTERS.length}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
-          >
-            <Plus size={16} />
-            Add choice
-          </button>
-        </div>
+          {form.question_type === "MULTIPLE_CHOICE" && (
+            <>
+              {/* Answer choices */}
+              <div>
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Answer choices
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Select the correct answer. Only one choice can be correct.
+                    </p>
+                  </div>
 
-        <div className="space-y-2.5">
-          {form.options.map((option, index) => (
-            <div
-              key={option.label}
-              className={`rounded-xl border p-3 transition ${
-                option.is_correct
-                  ? "border-emerald-300 bg-emerald-50/60"
-                  : "border-slate-200 bg-white"
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setCorrectOption(index)}
-                  aria-label={`Mark choice ${option.label} as correct`}
-                  aria-pressed={option.is_correct}
-                  className={`grid size-9 shrink-0 place-items-center rounded-full border text-sm font-bold transition ${
-                    option.is_correct
-                      ? "border-emerald-600 bg-emerald-600 text-white"
-                      : "border-slate-300 bg-white text-slate-500 hover:border-emerald-400 hover:text-emerald-700"
-                  }`}
-                >
-                  {option.is_correct ? <Check size={17} /> : option.label}
-                </button>
+                  <button
+                    type="button"
+                    onClick={addOption}
+                    disabled={form.options.length >= LETTERS.length}
+                    className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    <Plus size={16} />
+                    Add choice
+                  </button>
+                </div>
 
-                <input
-                  value={option.text}
-                  onChange={(event) =>
-                    updateOption(index, { text: event.target.value })
-                  }
-                  required
-                  placeholder={`Enter choice ${option.label}`}
-                  aria-label={`Choice ${option.label} text`}
-                  className="min-h-10 min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                />
+                <div className="space-y-2.5">
+                  {form.options.map((option, index) => (
+                    <div
+                      key={option.label}
+                      className={`rounded-xl border p-3 transition ${option.is_correct
+                        ? "border-emerald-300 bg-emerald-50/60"
+                        : "border-slate-200 bg-white"
+                        }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setCorrectOption(index)}
+                          aria-label={`Mark choice ${option.label} as correct`}
+                          aria-pressed={option.is_correct}
+                          className={`grid size-9 shrink-0 place-items-center rounded-full border text-sm font-bold transition ${option.is_correct
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-slate-300 bg-white text-slate-500 hover:border-emerald-400 hover:text-emerald-700"
+                            }`}
+                        >
+                          {option.is_correct ? (
+                            <Check size={17} />
+                          ) : (
+                            option.label
+                          )}
+                        </button>
 
-                <button
-                  type="button"
-                  onClick={() => removeOption(index)}
-                  disabled={form.options.length <= 2}
-                  aria-label={`Remove choice ${option.label}`}
-                  className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-25"
-                >
-                  <Trash2 size={16} />
-                </button>
+                        <input
+                          value={option.text}
+                          onChange={(event) =>
+                            updateOption(index, { text: event.target.value })
+                          }
+                          required
+                          placeholder={`Enter choice ${option.label}`}
+                          aria-label={`Choice ${option.label} text`}
+                          className="min-h-10 min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => removeOption(index)}
+                          disabled={form.options.length <= 2}
+                          aria-label={`Remove choice ${option.label}`}
+                          className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-25"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+
+                      {option.is_correct && (
+                        <p className="ml-11 mt-1.5 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                          <CheckCircle2 size={13} />
+                          Correct answer
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
+            </>
+          )}
 
-              {option.is_correct && (
-                <p className="ml-11 mt-1.5 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-                  <CheckCircle2 size={13} />
-                  Correct answer
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+        </>
+      )}
 
+      {/* Enumeration fields */}
+      {form.question_type === "ENUMERATION" && (
+        <EnumerationQuestionFields
+          form={form}
+          updateField={updateField}
+          updateKeyItem={updateKeyItem}
+        />
+      )}
+
+      {/* Required question */}
       <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3.5 transition hover:bg-slate-50">
         <input
           type="checkbox"
           checked={form.required}
-          onChange={(event) => updateField("required", event.target.checked)}
+          onChange={(event) =>
+            updateField("required", event.target.checked)
+          }
           className="mt-0.5 size-4 shrink-0 accent-blue-600"
         />
+
         <span>
           <span className="block text-sm font-medium text-slate-800">
             Required question
@@ -381,6 +538,7 @@ function QuestionForm({
         </span>
       </label>
 
+      {/* Form actions */}
       <div className="sticky bottom-0 -mx-4 flex flex-col-reverse gap-2 border-t border-slate-200 bg-white px-4 py-4 sm:-mx-6 sm:flex-row sm:justify-end sm:px-6">
         <button
           type="button"
@@ -391,7 +549,11 @@ function QuestionForm({
           Cancel
         </button>
 
-        <button type="submit" disabled={saving} className={primaryButton}>
+        <button
+          type="submit"
+          disabled={saving}
+          className={primaryButton}
+        >
           {saving ? (
             <LoaderCircle size={17} className="animate-spin" />
           ) : (
@@ -549,7 +711,7 @@ export default function QuestionEditor() {
     } catch (error) {
       toast.error(
         error.response?.data?.detail ||
-          "Unable to download the answer sheet.",
+        "Unable to download the answer sheet.",
       );
     } finally {
       setDownloadingSheet(false);
@@ -630,16 +792,14 @@ export default function QuestionEditor() {
               </span>
 
               <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  isDraft
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-emerald-50 text-emerald-700"
-                }`}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isDraft
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-emerald-50 text-emerald-700"
+                  }`}
               >
                 <span
-                  className={`size-1.5 rounded-full ${
-                    isDraft ? "bg-amber-500" : "bg-emerald-500"
-                  }`}
+                  className={`size-1.5 rounded-full ${isDraft ? "bg-amber-500" : "bg-emerald-500"
+                    }`}
                 />
                 {assessment.status}
               </span>
@@ -819,11 +979,10 @@ export default function QuestionEditor() {
                             {question.points} {Number(question.points) === 1 ? "point" : "points"}
                           </span>
                           <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                              question.required
-                                ? "bg-slate-100 text-slate-600"
-                                : "bg-amber-50 text-amber-700"
-                            }`}
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${question.required
+                              ? "bg-slate-100 text-slate-600"
+                              : "bg-amber-50 text-amber-700"
+                              }`}
                           >
                             {question.required ? "Required" : "Optional"}
                           </span>
@@ -863,45 +1022,71 @@ export default function QuestionEditor() {
                       )}
                     </div>
 
-                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                      {(question.options || []).map((option) => (
-                        <div
-                          key={option.id || option.label}
-                          className={`flex min-w-0 items-start gap-2.5 rounded-xl border px-3 py-3 text-sm ${
-                            option.is_correct
-                              ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
-                              : "border-slate-100 bg-slate-50/70 text-slate-600"
-                          }`}
-                        >
-                          <span
-                            className={`grid size-6 shrink-0 place-items-center rounded-lg text-xs font-bold ${
-                              option.is_correct
-                                ? "bg-emerald-600 text-white"
-                                : "bg-white text-slate-500 ring-1 ring-slate-200"
-                            }`}
-                          >
-                            {option.label}
-                          </span>
+                    {question.question_type === "MULTIPLE_CHOICE" && (
+                      <>
+                        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                          {(question.options || []).map((option) => (
+                            <div
+                              key={option.id || option.label}
+                              className={`flex min-w-0 items-start gap-2.5 rounded-xl border px-3 py-3 text-sm ${option.is_correct
+                                ? "border-emerald-200 bg-emerald-50/70 text-emerald-900"
+                                : "border-slate-100 bg-slate-50/70 text-slate-600"
+                                }`}
+                            >
+                              <span
+                                className={`grid size-6 shrink-0 place-items-center rounded-lg text-xs font-bold ${option.is_correct
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-white text-slate-500 ring-1 ring-slate-200"
+                                  }`}
+                              >
+                                {option.label}
+                              </span>
 
-                          <span className="min-w-0 flex-1 break-words leading-5">
-                            {option.text}
-                          </span>
+                              <span className="min-w-0 flex-1 break-words leading-5">
+                                {option.text}
+                              </span>
 
-                          {option.is_correct && (
-                            <CheckCircle2
-                              size={16}
-                              className="mt-0.5 shrink-0 text-emerald-600"
-                            />
-                          )}
+                              {option.is_correct && (
+                                <CheckCircle2
+                                  size={16}
+                                  className="mt-0.5 shrink-0 text-emerald-600"
+                                />
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
 
-                    {correctOption && (
-                      <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-                        <CheckCircle2 size={14} />
-                        Correct answer: {correctOption.label}
-                      </p>
+                        {correctOption && (
+                          <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                            <CheckCircle2 size={14} />
+                            Correct answer: {correctOption.label}
+                          </p>
+                        )}
+                      </>
+                    )}
+
+                    {/* Enumeration answer key */}
+                    {question.question_type === "ENUMERATION" && (
+                      <div className="mt-4 space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Enumeration answer key
+                        </p>
+
+                        {(question.key_items || []).map((item) => (
+                          <div
+                            key={item.position}
+                            className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3"
+                          >
+                            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-white text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+                              {item.position}
+                            </span>
+
+                            <p className="min-w-0 break-words text-sm leading-5 text-slate-700">
+                              {(item.variants || []).join(", ") || "No accepted answers"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </article>

@@ -78,3 +78,41 @@ export async function getScanPreview(scanFileId) {
     throw error;
   }
 }
+
+export async function submitEnumerationPhotoReview(scanFileId, studentId) {
+  const response = await api.post(
+    `/scan-files/${scanFileId}/enumeration-review/`,
+    { student_id: studentId },
+  );
+
+  return response.data;
+}
+
+export async function submitEnumerationAnswers(
+  submissionId,
+  questionId,
+  answers,
+) {
+  const response = await api.post(
+    `/submissions/${submissionId}/enumeration-answers/`,
+    {
+      question_id: questionId,
+      answers,
+    },
+  );
+
+  return response.data;
+}
+
+export async function reviewEnumerationAnswer(
+  submissionId,
+  answerId,
+  answers,
+) {
+  const response = await api.patch(
+    `/submissions/${submissionId}/answers/${answerId}/review/`,
+    { answers },
+  );
+
+  return response.data;
+}

@@ -153,7 +153,12 @@ function findMarker(data, width, height, cx, cy, half, expected) {
     return best;
 }
 
-export default function CameraCapture({ onCapture, onClose, onFallback }) {
+export default function CameraCapture({
+    onCapture,
+    onClose,
+    onFallback,
+    enumerationMode = false,
+}) {
     const videoRef = useRef(null);
     const analysisRef = useRef(null);
     const streamRef = useRef(null);
@@ -277,16 +282,19 @@ export default function CameraCapture({ onCapture, onClose, onFallback }) {
             holdRef.current = results.every(Boolean) ? holdRef.current + 1 : 0;
             setProgress(Math.min(1, holdRef.current / HOLD_CHECKS));
 
-            if (holdRef.current >= HOLD_CHECKS) takePhoto();
+            if (!enumerationMode && holdRef.current >= HOLD_CHECKS) {
+                takePhoto();
+            }
         }, CHECK_MS);
 
         return () => clearInterval(timer);
-    }, [dims, takePhoto]);
+    }, [dims, takePhoto, enumerationMode]);
 
     const frame = dims ? getFrame(dims.w, dims.h) : null;
     const centers = frame ? cornerCenters(frame) : [];
     const foundCount = found.filter(Boolean).length;
     const allFound = foundCount === 4;
+    const canCapture = enumerationMode ? Boolean(dims) : allFound;
     const stroke = dims ? dims.w / 220 : 3;
     const targetSize = frame ? MARKER_SIZE * frame.w * TARGET_SCALE : 0;
 
@@ -341,7 +349,7 @@ export default function CameraCapture({ onCapture, onClose, onFallback }) {
                             className="absolute inset-0 h-full w-full"
                         />
 
-                        {dims && frame && (
+                        {dims && frame && !enumerationMode && (
                             <svg
                                 viewBox={`0 0 ${dims.w} ${dims.h}`}
                                 className="pointer-events-none absolute inset-0 h-full w-full"
@@ -398,9 +406,11 @@ export default function CameraCapture({ onCapture, onClose, onFallback }) {
 
             <div className="shrink-0 px-4 pb-6 pt-3 text-center text-white">
                 <p className="text-sm">
-                    {allFound
-                        ? "Hold steady..."
-                        : `${foundCount} of 4 squares found. Fit the sheet in the frame so each black square lands in a box.`}
+                    {enumerationMode
+                        ? "Fit the entire answer sheet in the frame and make sure the handwriting is readable."
+                        : allFound
+                            ? "Hold steady..."
+                            : `${foundCount} of 4 squares found. Fit the sheet in the frame so each black square lands in a box.`}
                 </p>
 
                 <div className="mx-auto mt-2 h-1 w-40 overflow-hidden rounded bg-white/20">
@@ -413,7 +423,7 @@ export default function CameraCapture({ onCapture, onClose, onFallback }) {
                 <button
                     type="button"
                     onClick={takePhoto}
-                    disabled={!dims || !allFound}
+                    disabled={!canCapture}
                     aria-label="Take photo"
                     className="mx-auto mt-4 grid size-16 place-items-center rounded-full border-4 border-white bg-white/20 disabled:opacity-30"
                 >
